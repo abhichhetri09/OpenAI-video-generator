@@ -6,7 +6,9 @@ import requests
 from io import BytesIO
 import logging
 from typing import List, Dict
-import numpy
+import cv2
+
+import numpy as np
 
 class VideoGenerator:
     def __init__(self, api_key: str):
@@ -23,78 +25,54 @@ class VideoGenerator:
 
     def parse_script(self, script: str) -> List[Dict]:
         """Parse the script into scenes"""
-        scenes = [
-            scene.strip() for scene in script.split('\n\n')
-            if scene.strip()
-        ]
-        
-        return [
-            {
-                'text': scene,
-                'duration': max(3, len(scene.split()) * 0.5)
-            }
-            for scene in scenes
-        ]
+        scenes = []
+        for line in script.strip().split('\n'):
+            if line.strip():  # Skip empty lines
+                scenes.append({
+                    'description': line.strip()
+                })
+        return scenes
 
     def generate_image(self, scene_text: str) -> Image.Image:
-        """Generate or load a test image for a scene"""
+        """Generate a test image for development"""
         try:
             logging.info(f"Generating test image for scene: {scene_text[:50]}...")
-        
-            # Create a simple colored image for testing
+            
+            # Create a test image with text
             width = 1024
             height = 1024
-            color = (100, 150, 200)  # RGB color
-            image = Image.new('RGB', (width, height), color)
-        
+            image = Image.new('RGB', (width, height), (255, 255, 255))  # White background
+            
+            # Add text to image using PIL
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(image)
+            draw.text((width/2, height/2), scene_text, fill=(0, 0, 0))  # Black text
+            
             return image
-        
+            
         except Exception as e:
             logging.error(f"Error generating image: {str(e)}")
             raise
 
     def create_video(self, scenes: List[Dict], output_path: str):
-        """Create video from scenes"""
-        try:
-            clips = []
+        """Create a video from a list of scenes"""
+        if not scenes:
+            raise ValueError("No scenes provided")
+        
+        clips = []
+        for scene in scenes:
+            # Generate image for each scene
+            image = self.generate_image(scene['description'])
             
-            for i, scene in enumerate(scenes, 1):
-                logging.info(f"Processing scene {i}/{len(scenes)}")
-                
-                # Generate image for scene
-                image = self.generate_image(scene['text'])
-                
-                # Convert PIL image to numpy array
-                img_array = numpy.array(image)
-                
-                # Create clip with duration
-                clip = ImageClip(img_array).set_duration(scene['duration'])
-                
-                # Add simple fade in/out
-                clip = clip.fadein(0.5).fadeout(0.5)
-                
-                clips.append(clip)
-            
-            # Concatenate all clips
-            final_video = concatenate_videoclips(clips, method="compose")
-            
-            # Create output directory if it doesn't exist
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # Write the final video
-            logging.info("Rendering final video...")
-            final_video.write_videofile(
-                output_path,
-                fps=24,
-                codec='libx264',
-                audio=False
-            )
-            
-            logging.info(f"Video saved to: {output_path}")
-            
-        except Exception as e:
-            logging.error(f"Error creating video: {str(e)}")
-            raise
+            # Convert PIL Image to ImageClip (duration 3 seconds per scene)
+            image_clip = ImageClip(np.array(image)).set_duration(3)
+            clips.append(image_clip)
+        
+        # Concatenate all clips
+        final_clip = concatenate_videoclips(clips)
+        
+        # Write the result to a file
+        final_clip.write_videofile(output_path, fps=24)
 
 def get_user_script() -> str:
     """Get the script from user input"""
